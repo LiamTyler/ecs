@@ -4,10 +4,7 @@
 #include <functional>
 #include <iostream>
 
-// using EntityId = uint32_t;
-
 class EntityId {
-    friend class ECS;
     public:
         EntityId(uint32_t id);
 
@@ -32,24 +29,20 @@ namespace std {
 
 }
 
-// class Component;
 
 class Entity {
-    friend class ECS;
     public:
+        explicit Entity(EntityId id);
 
         // template <typename CompType, typename ...Args>
         // CompType* addComponent(Args&&... args) {
         //     return nullptr;
         // }
 
-        // std::unordered_map<std::type_index, Component
-        //
+        // std::unordered_map<std::type_index, ComponentHandle> components;
 
         EntityId getId() const { return id_; }
 
     private:
-        explicit Entity(EntityId id);
-        static uint32_t nextID();
         EntityId id_;
 };

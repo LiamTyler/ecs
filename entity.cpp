@@ -11,12 +11,6 @@ std::ostream& operator<<(std::ostream& out, const EntityId& eid) {
 }
 
 
-EntityId EntityId::nextID() {
-    static uint32_t id = 1;
-    EntityId eid(id);
-    id++;
-    return eid;
-}
 
 Entity::Entity(EntityId id) : id_(id) {}
 

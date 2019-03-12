@@ -35,7 +35,7 @@ int main() {
         std::cout << entity.second.getId() << std::endl;
 
     cout << "comp size: " << ECS::components_[typeid(Test)].size() << endl;
-    ECS::createComponent<Test>();
+    auto handle = ECS::createComponent<Test>();
     ECS::createComponent<Test>();
     ECS::createComponent<Test>();
     size_t numTests;
@@ -44,6 +44,7 @@ int main() {
         cout << tests[i].x << endl;
         tests[i].x = i;
     }
+    handle->x = 10;
     for (size_t i = 0; i < numTests; ++i) {
         cout << tests[i].x << endl;
         tests[i].x = i;

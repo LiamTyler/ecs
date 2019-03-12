@@ -5,14 +5,12 @@ project(ecs)
 set(
     SRCS
     entity.cpp
-    component.cpp
     ecs.cpp
 )
 
 set(
     HEADERS
     entity.hpp
-    component.hpp
     ecs.hpp
 )
 

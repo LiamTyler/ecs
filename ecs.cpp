@@ -14,28 +14,17 @@ namespace {
 }
 
 namespace ECS {
+    // TODO: make private
     std::unordered_map<std::type_index, std::vector<uint8_t>> components_;
     std::unordered_map<EntityId, Entity> entities_;
 
     bool init() {
-        /*
-        for (const auto& system : systems_)
-            if (!system->init())
-                return false;
-        return true;
-        */
     }
 
     void shutdown() {
-        // for (const auto& system : systems_)
-        //     delete system;
-        // systems_.clear();
-
     }
 
     void update() {
-        // for (const auto& system : systems_)
-        //     system->update();
     }
 
     EntityId createEntity() {
@@ -53,17 +42,5 @@ namespace ECS {
     bool entityIsAlive(EntityId id) {
         return entities_.find(id) != entities_.end();
     }
-
-    /*
-    void registerSystem(ComponentSystem* system) {
-        systems_.push_back(system);
-    }
-
-    void unregisterSystem(ComponentSystem* system) {
-        auto it = std::find(systems_.begin(), systems_.end(), system);
-        if (it != systems_.end())
-            systems_.erase(it);
-    }
-    */
 
 } // namespace ECS

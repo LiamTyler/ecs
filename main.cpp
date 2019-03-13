@@ -12,32 +12,25 @@ int main() {
 
     ECS::init();
 
+    // create 3 entities
     ECS::createEntity();
+    ECS::printState();
     ECS::createEntity();
-    ECS::createEntity();
-    ECS::createEntity();
-    ECS::createEntity();
-    ECS::createEntity();
-    auto e = ECS::createEntity();
+    ECS::printState();
+    EntityId e3 = ECS::createEntity();
+    ECS::printState();
 
-    for (const auto& entity : ECS::entities_)
-        std::cout << entity.second.getId() << std::endl;
+    ECS::removeEntity(1);
+    ECS::printState();
 
 
-    std::cout << std::endl;
-
-    std::cout << "4 alive? " << ECS::entityIsAlive(4) << std::endl;
-    ECS::removeEntity(4);
-    ECS::removeEntity(4);
-    std::cout << "4 alive? " << ECS::entityIsAlive(4) << std::endl;
-
-    for (const auto& entity : ECS::entities_)
-        std::cout << entity.second.getId() << std::endl;
-
-    cout << "comp size: " << ECS::components_[typeid(Test)].size() << endl;
-    auto handle = ECS::createComponent<Test>(e);
-    ECS::createComponent<Test>(e, 5);
-    ECS::createComponent<Test>(e);
+    e3->createComponent<Test>();
+    // auto handle = ECS::createComponent<Test>(e3);
+    ECS::printState();
+    // ECS::createComponent<Test>(e3, 5);
+    // ECS::createComponent<Test>(e3);
+    
+    /*
     size_t numTests;
     auto tests = ECS::getComponents<Test>(numTests);
     for (size_t i = 0; i < numTests; ++i) {
@@ -50,6 +43,7 @@ int main() {
         cout << tests[i].x << endl;
         tests[i].x = i;
     }
+    */
 
     ECS::shutdown();
     return 0;

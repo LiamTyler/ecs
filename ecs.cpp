@@ -16,11 +16,13 @@ namespace {
 namespace ECS {
     // TODO: make private
     std::unordered_map<std::type_index, std::vector<uint8_t>> components_;
+    std::unordered_map<std::type_index, std::unordered_map<EntityId, uint8_t>> newComponents_;
     std::unordered_map<EntityId, Entity> entities_;
 
     bool init() {
     }
 
+    // TODO: destruct all objects
     void shutdown() {
     }
 
@@ -31,6 +33,14 @@ namespace ECS {
         EntityId id = nextID();
         entities_.emplace(id, Entity(id));
         return id;
+    }
+
+    Entity* getEntity(EntityId id) {
+        auto it = entities_.find(id);
+        if (it != entities_.end())
+            return &it->second;
+        else
+            return nullptr;
     }
 
     void removeEntity(EntityId id) {

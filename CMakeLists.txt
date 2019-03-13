@@ -4,13 +4,11 @@ project(ecs)
 
 set(
     SRCS
-    entity.cpp
     ecs.cpp
 )
 
 set(
     HEADERS
-    entity.hpp
     ecs.hpp
 )
 

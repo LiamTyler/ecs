@@ -3,22 +3,22 @@
 
 using namespace std;
 
-struct Test {
-    int x = 0;
+struct Test : Component {
+    Test(int xx = 0) : x(xx) {}
+    int x;
 };
 
 int main() {
 
     ECS::init();
 
-    // Entity e;
     ECS::createEntity();
     ECS::createEntity();
     ECS::createEntity();
     ECS::createEntity();
     ECS::createEntity();
     ECS::createEntity();
-    ECS::createEntity();
+    auto e = ECS::createEntity();
 
     for (const auto& entity : ECS::entities_)
         std::cout << entity.second.getId() << std::endl;
@@ -35,13 +35,14 @@ int main() {
         std::cout << entity.second.getId() << std::endl;
 
     cout << "comp size: " << ECS::components_[typeid(Test)].size() << endl;
-    auto handle = ECS::createComponent<Test>();
-    ECS::createComponent<Test>();
-    ECS::createComponent<Test>();
+    auto handle = ECS::createComponent<Test>(e);
+    ECS::createComponent<Test>(e, 5);
+    ECS::createComponent<Test>(e);
     size_t numTests;
     auto tests = ECS::getComponents<Test>(numTests);
     for (size_t i = 0; i < numTests; ++i) {
-        cout << tests[i].x << endl;
+        cout << "x: " << tests[i].x << endl;
+        cout << "entity: " << tests[i].entity << endl;
         tests[i].x = i;
     }
     handle->x = 10;

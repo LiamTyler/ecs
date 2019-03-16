@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <iterator>
 #include <bitset>
+#include <algorithm>
 
 // typedef uint64_t EntityId;
 
@@ -138,6 +139,36 @@ private:
 } EntityId;
 
 
+/*
+    BaseComponent and Component<T> classes are for internal use only
+    to map a type T to a uint32_t respresenting. A user's components
+    can be POD's, and don't have to inherit from this. The first user component
+    added will be mapped to 0, the 2nd to 1, etc.
+*/
+class BaseComponent {
+public:
+    static uint32_t typeCounter_;
+};
+
+uint32_t BaseComponent::typeCounter_ = 0;
+
+template <typename Derived>
+class Component : public BaseComponent {
+public:
+    static uint32_t typeCounter() {
+        static uint32_t typeIndex = typeCounter_++;
+        return typeIndex;
+    }
+};
+
+template <typename T>
+class ComponentHandle {
+public:
+    typedef T type;
+    ComponentHandle() = default;
+};
+
+
 class Entity {
     friend class EntityPool;
 public:
@@ -146,6 +177,11 @@ public:
     EntityId id() const { return id_; }
     const ComponentMask& componentMask() const { return componentMask_; }
 
+    template <typename T, typename... Args>
+    void addComponent(Args&&... args) {
+        std::cout << Component<T>::typeCounter() << std::endl;
+    }
+
 private:
     EntityId id_;
     ComponentMask componentMask_;
@@ -153,8 +189,52 @@ private:
 
 
 class EntityPool {
-    const uint32_t BLOCK_SIZE = 2;
 public:
+    static const uint32_t BLOCK_SIZE = 2;
+
+    class EntityIterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = Entity;
+        using difference_type = std::ptrdiff_t;
+        using pointer = Entity * ;
+        using reference = Entity& ;
+
+        EntityIterator(const EntityPool& pool, int b, int i) : p(pool), block(b), index(i) {}
+        EntityIterator(const EntityPool& pool, uint32_t id) : p(pool), block(id / BLOCK_SIZE), index(id % BLOCK_SIZE) {}
+
+        void next();
+        void prev();
+
+        value_type& operator*();
+        value_type* operator->();
+
+        EntityIterator& operator++() { next(); return *this; }
+        EntityIterator operator++(int junk) { EntityIterator i = *this; next(); return i; }
+
+        bool operator==(const EntityIterator& iter) {
+            return block == iter.block && index == iter.index;
+        }
+        bool operator!=(const EntityIterator& iter) {
+            return block != iter.block || index != iter.index;
+        }
+        bool operator<(const EntityIterator& iter) {
+            return block * BLOCK_SIZE + index < iter.block * BLOCK_SIZE + iter.index;
+        }
+        bool operator>(const EntityIterator& iter) {
+            return block * BLOCK_SIZE + index > iter.block * BLOCK_SIZE + iter.index;
+        }
+
+        friend std::ostream& operator<<(std::ostream& out, const EntityIterator& it) {
+            return out << it.block << " " << it.index;
+        }
+
+        const EntityPool& p;
+        int block;
+        int index;
+    };
+
+
     EntityPool() {}
     
     ~EntityPool() {
@@ -172,11 +252,33 @@ public:
             }
             blocks_.push_back(chunk);
         }
+        ++size_;
 
-        int free = free_list_.back();
+        // Assign the free ID to the corresponding entity
+        uint32_t free = free_list_.back();
         free_list_.pop_back();
-        Entity& entity = blocks_[free / BLOCK_SIZE][free % BLOCK_SIZE];
+        int block = free / BLOCK_SIZE;
+        int index = free % BLOCK_SIZE;
+        Entity& entity = blocks_[block][index];
         entity.id_ = EntityId(free, entity.id_.version());
+
+        
+        // update the iterators
+        if (block < beginning_.block)
+            beginning_.index = index;
+        else if (block == beginning_.block)
+            beginning_.index = std::min(index, beginning_.index);
+        beginning_.block = std::min(block, beginning_.block);
+
+        ++free;
+        block = free / BLOCK_SIZE;
+        index = free % BLOCK_SIZE;
+        if (block > end_.block)
+            end_.index = index;
+        else if (block == end_.block)
+            end_.index = std::max(index, end_.index);
+        end_.block = std::max(block, end_.block);
+
         return entity.id_;
     }
     
@@ -189,8 +291,21 @@ public:
     inline void destroy(const EntityId& id) {
         Entity* e = get(id);
         if (e != nullptr) {
-            e->id_ = EntityId(id.index(), id.version() + 1);
+            e->id_ = EntityId(-1, id.version() + 1);
             free_list_.push_back(id.index());
+            --size_;
+
+            if (EntityIterator(*this, id.index()) == beginning_) {
+                beginning_.next();
+            }
+            if (EntityIterator(*this, id.index() + 1) == end_) {
+                end_.prev();
+                ++end_.index;
+                if (end_.index == BLOCK_SIZE) {
+                    ++end_.block;
+                    end_.index = 0;
+                }
+            }
         }
     }
 
@@ -205,18 +320,59 @@ public:
         }
         cout << endl;
     }
+        
+    EntityIterator begin() const {
+        return beginning_;
+    }
+        
+    EntityIterator end() const {
+        if (!size_)
+            return beginning_;
+        else
+            return end_;
+    }
     
     
 protected:
     size_t size_ = 0;
     std::vector<Entity*> blocks_;
     std::vector<uint32_t> free_list_;
-};
 
+    EntityIterator beginning_ = EntityIterator(*this, 0, 0);
+    EntityIterator end_ = EntityIterator(*this, 0, 0);
+};
 EntityPool pool;
 
+
+EntityPool::EntityIterator::value_type& EntityPool::EntityIterator::operator*() {
+    return pool.blocks_[block][index];
+}
+
+EntityPool::EntityIterator::value_type* EntityPool::EntityIterator::operator->() {
+    return pool.blocks_[block] + index;
+}
+
+void EntityPool::EntityIterator::next() {
+    do {
+        ++index;
+        if (index == BLOCK_SIZE) {
+            ++block;
+            index = 0;
+        }
+    } while (*this < p.end() && p.blocks_[block][index].id_.index() == (uint32_t)-1);
+}
+
+void EntityPool::EntityIterator::prev() {
+    do {
+        --index;
+        if (index < 0) {
+            index = BLOCK_SIZE - 1;
+            --block;
+        }
+    } while (*this > p.begin() && p.blocks_[block][index].id_.index() == (uint32_t)-1);
+}
+
 Entity* EntityId::operator->() const {
-    std::cout << "in -> operator" << std::endl;
     return pool.get(*this);
 }
 
@@ -248,6 +404,10 @@ typedef struct Test {
 
 } Test;
 
+typedef struct Test2 {
+    int x = 1;
+};
+
 template <typename T>
 class Foo {
 public:
@@ -259,24 +419,40 @@ using namespace std;
 int main() {
 
     auto e1 = pool.create();
-    pool.printState();
-    pool.create();
-    pool.printState();
+    auto e2 = pool.create();
     auto e3 = pool.create();
-    pool.printState();
-    auto e = pool.create();
-    pool.printState();
-    pool.destroy(e);
-    pool.printState();
+    auto e4 = pool.create();
     pool.destroy(e3);
+    pool.destroy(e2);
     pool.printState();
-    if (!e3) {
+    cout << "looping over entities" << endl;
+    for (const auto& e : pool) {
+        cout << e.id() << endl;
+    }
+    cout << endl;
+    pool.destroy(e4);
+    pool.destroy(e1);
+    pool.destroy(pool.create());
+    cout << pool.begin() << endl;
+    cout << pool.end() << endl;
+
+    cout << "looping over entities" << endl;
+    for (const auto& e : pool) {
+        cout << e.id() << endl;
+    }
+    cout << endl;
+
+    /*if (!e3) {
         cout << "e3 (" << e3 << ") not found" << endl;
     }
     if (e1) {
         cout << "e1 (" << e1 << ") found" << endl;
-    }
-    Entity& ee = *e3;
+    }*/
+
+    /*e1->addComponent<Test>();
+    e1->addComponent<Test>();
+    e1->addComponent<Test2>();*/
+    cout << sizeof(EntityPool::EntityIterator) << endl;
 
     return 0;
 }

@@ -10,9 +10,10 @@
 #include "component.hpp"
 
 #include <memory>
-#include <cxxabi.h>
+//#include <cxxabi.h>
 
 inline std::string demangle(const char* name) {
+    /*
     int status = -4; // some arbitrary value to eliminate the compiler warning
 
     // enable c++11 by passing the flag -std=c++11 to g++
@@ -22,6 +23,9 @@ inline std::string demangle(const char* name) {
     };
 
     return (status==0) ? res.get() : name ;
+    */
+
+    return "";
 }
 
 template <class T>

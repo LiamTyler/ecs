@@ -12,7 +12,7 @@ set(
     ecs.hpp
 )
 
-add_library(ecs STATIC ${SRCS} ${HEADERS})
+#add_library(ecs STATIC ${SRCS} ${HEADERS})
 
 add_executable(ecs_example main.cpp)
-target_link_libraries(ecs_example ecs)
+#target_link_libraries(ecs_example ecs)

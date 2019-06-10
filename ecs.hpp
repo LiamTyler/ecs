@@ -1,238 +1,395 @@
-#pragma once
-
-#include <unordered_map>
-#include <typeindex>
-#include <vector>
 #include <iostream>
-#include <deque>
-
-#include "entity.hpp"
-#include "component.hpp"
-
+#include <vector>
+#include <iterator>
 #include <memory>
-#include <cxxabi.h>
+#include <deque>
+#include <cstring>
+#include <utility>
+#include <type_traits>
+#include <functional>
 
-inline std::string demangle(const char* name) {
-    int status = -4; // some arbitrary value to eliminate the compiler warning
+#define USE_ECS_ASSERT
+#ifdef USE_ECS_ASSERT
+#define ECS_ASSERT(x) if (!(x)) { printf("line %d in function %s: (%s) failed in file %s.\n", __LINE__, __PRETTY_FUNCTION__, #x, __FILE__); abort(); }
+#else
+#define ECS_ASSERT(x)
+#endif
 
-    // enable c++11 by passing the flag -std=c++11 to g++
-    std::unique_ptr<char, void(*)(void*)> res {
-        abi::__cxa_demangle(name, NULL, NULL, &status),
-        std::free
-    };
+class BaseFamily {
+    protected:
+        static uint32_t id_;
+};
 
-    return (status==0) ? res.get() : name ;
-}
-
-template <class T>
-inline std::string type(const T& t) {
-    return demangle(typeid(t).name());
-}
-
-
-// The whole ids = (generation + index) idea from:
-// http://bitsquid.blogspot.com/2014/08/building-data-oriented-entity-system.html
-const uint32_t COMPONENT_INDEX_BITS = 24;
-const uint32_t COMPONENT_INDEX_MASK = (1<<COMPONENT_INDEX_BITS)-1;
-
-const uint32_t COMPONENT_GENERATION_BITS = 8;
-const uint32_t COMPONENT_GENERATION_MASK = (1<<COMPONENT_GENERATION_BITS)-1;
-
-const uint32_t MINIMUM_FREE_COMPONENTS = 8;
-
-const uint32_t NULL_COMPONENT_ID = ~0;
+uint32_t BaseFamily::id_ = 0;
 
 template <typename T>
-class ComponentHandle {
+class Family : public BaseFamily {
     public:
-        ComponentHandle(uint32_t id = NULL_COMPONENT_ID);
-        ComponentHandle(uint32_t index, uint32_t generation);
-
-        uint32_t id() const { return id_; }
-        uint32_t index() const { return id_ & COMPONENT_INDEX_MASK; }
-        uint32_t generation() const { return (id_ >> COMPONENT_INDEX_BITS) & COMPONENT_GENERATION_MASK; }
-
-        T* operator->();
-
-    private:
-        uint32_t id_;
+        static uint32_t id() {
+            static const auto familyId = id_++;
+            return familyId;
+        }
 };
 
-class Entity;
-
-class EntityId {
-    public:
-        EntityId(uint32_t _id = 0) : id(_id) {}
-
-        bool operator==(const EntityId& eid) const {
-            return id == eid.id;
-        }
-
-        friend std::ostream& operator<<(std::ostream& out, const EntityId& eid) {
-            return out << eid.id;
-        }
-
-        inline Entity* operator->();
-
-        uint32_t id;
-    private:
-        static EntityId nextID();
-};
-
-typedef struct Component {
-    EntityId entity;
-} Component;
-
-namespace std {
-
-  template <>
-  struct hash<EntityId>
-  {
-    std::size_t operator()(const EntityId& eid) const
-    {
-      return std::hash<uint32_t>()(eid.id);
-    }
-  };
-
-}
+using entity_type         = uint32_t;
+using entity_index_type   = uint32_t;
+using entity_version_type = uint8_t;
+static constexpr auto ENTITY_INDEX_BITS = 24;
+static constexpr entity_type ENTITY_INDEX_MASK = (1ull << ENTITY_INDEX_BITS) - 1;
+static constexpr auto ENTITY_VERSION_BITS = 8;
+static constexpr entity_type ENTITY_VERSION_MASK = (1ull << ENTITY_VERSION_BITS) - 1;
 
 class Entity {
     public:
-        explicit Entity(EntityId id) : id_(id) {}
+        Entity() : id_(0) {}
+        Entity(const entity_type e) : id_(e) {}
+        Entity(const entity_index_type i, const entity_version_type v) :
+            id_(((entity_type) v << ENTITY_INDEX_BITS) + i) {}
 
-        EntityId getId() const { return id_; }
+        entity_type id() const { return id_; }
+        entity_index_type index() const { return id_ & ENTITY_INDEX_MASK; }
+        entity_version_type version() const { return (id_ >> ENTITY_INDEX_BITS) & ENTITY_VERSION_MASK; }
 
-        template <typename T, typename ...Args>
-        ComponentHandle<T> createComponent(Args&& ...args);
+        bool operator==(const Entity& e) const {
+            return id_ == e.id_;
+        }
 
-        template <typename T>
-        ComponentHandle<T> getComponent();
-
-        friend std::ostream& operator<<(std::ostream& out, const Entity& e) {
-            out << "id = " << e.id_ << ", num components = " << e.components_.size() << "\n";
-            for (const auto& c : e.components_) {
-                out << "Type = '" << demangle(c.first.name()) << "'\n";
-            }
-            return out;
+        bool operator!=(const Entity& e) const {
+            return !(id_ == e.id_);
         }
 
     private:
-        std::unordered_map<std::type_index, uint32_t> components_;
-        EntityId id_;
+        entity_type id_;
 };
 
-namespace ECS {
-    extern std::unordered_map<std::type_index, std::vector<uint8_t>> components_;
-    extern std::unordered_map<std::type_index, std::vector<uint32_t>> components_generation_;
-    extern std::unordered_map<std::type_index, std::deque<uint32_t>> components_free_list_;
-    // extern std::unordered_map<std::type_index, std::unordered_map<EntityId, uint8_t>> newComponents_;
-    extern std::unordered_map<EntityId, Entity> entities_;
-
-    bool init();
-    void shutdown();
-    void update();
-
-    void printState();
-
-    EntityId createEntity();
-    Entity* getEntity(EntityId id);
-    void removeEntity(EntityId id);
-    bool entityIsAlive(EntityId id);
-
-    template <typename T, typename ...Args>
-    ComponentHandle<T> createComponent(EntityId eid, Args&& ...args) {
-        // Make sure that T inherits from Component
-        static_assert(std::is_base_of<Component, T>::value, "Error: Can only create components that inherit from class Component!");
-
-        auto& components = components_[typeid(T)];
-        auto& free_list  = components_free_list_[typeid(T)];
-        auto& generation = components_generation_[typeid(T)];
-
-        uint32_t idx;
-        // see if there are enough free spaces
-        if (free_list.size() > MINIMUM_FREE_COMPONENTS) {
-            idx = free_list.front();
-            free_list.pop_front();
-        } else {
-            generation.push_back(0);
-
-            size_t currSize = components.size();
-            components.resize(currSize + sizeof(T));
-            idx = currSize / sizeof(T);
+/**
+ * Adding or deleting components does not invalidate iterators over the components.
+ * It does however invalidate a direct reference or pointer to the components.
+ * In order to avoid this, could create a component handle class that holds the index.
+ * Could also instead use a memory pool + a free list, but that would make iteration
+ * more complicated.
+ */
+class ComponentPool {
+    static constexpr entity_index_type null = entity_index_type(-1);
+    static constexpr uint32_t ENTITIES_PER_PAGE = 4096;
+    public:
+        // automatically reserve 4K memory for the components, and 1K entities
+        ComponentPool() {
+            components_.reserve(4096);
+            direct_.reserve(1024);
+        }
+        ~ComponentPool() {
+            if (components_.size()) {
+                for (int i = 0; i < components_.size() / componentSize_; ++i) {
+                    callDestructor_(&components_[i * componentSize_]);
+                }
+            }
+            for (auto& page : indirect_)
+                delete[] page;
         }
 
-        ComponentHandle<T> ret(idx, generation[idx]);
-    	auto obj = new(&components[idx * sizeof(T)]) T(std::forward<Args>(args)...);
-        obj->entity = eid;
+        ComponentPool(const ComponentPool& p) = delete;
+        ComponentPool& operator=(const ComponentPool& p) = delete;
 
-        return ret;
+        ComponentPool(ComponentPool&& p) = default;
+        ComponentPool& operator=(ComponentPool&& p) = default;
+
+        template <typename Component>
+        class iterator {
+            friend class ComponentPool;
+
+            using direct_type = std::vector<uint8_t>;
+            using index_type = entity_type;
+
+            iterator(direct_type* ref, const index_type idx)
+                : direct(ref), index(idx) {}
+
+            public:
+                using difference_type   = entity_type;
+                using value_type        = Component;
+                using pointer           = value_type*;
+                using reference         = value_type&;
+                using iterator_category = std::random_access_iterator_tag;
+
+                iterator() = default;
+
+                iterator& operator++() {
+                    --index;
+                    return *this;
+                }
+
+                iterator operator++(int) {
+                    iterator orig = *this;
+                    ++(*this);
+                    return orig;
+                }
+
+                iterator& operator--() {
+                    ++index;
+                    return *this;
+                }
+
+                iterator operator--(int) {
+                    iterator orig = *this;
+                    --(*this);
+                    return orig;
+                }
+
+                iterator& operator+=(const difference_type diff) {
+                    index -= diff;
+                    return *this;
+                }
+
+                iterator operator+(const difference_type diff) const {
+                    return iterator(direct, index - diff);
+                }
+
+                iterator& operator-=(const difference_type diff) {
+                    return (*this += -diff);
+                }
+
+                iterator operator-(const difference_type diff) const {
+                    return (*this + -diff);
+                }
+
+                reference operator[](const difference_type value) const {
+                    const auto pos = index - value - 1;
+                    return *((Component*) &((*direct)[pos * sizeof(Component)]));
+                }
+
+                bool operator==(const iterator iter) const {
+                    return index == iter.index;
+                }
+
+                bool operator!=(const iterator iter) const {
+                    return !(*this == iter);
+                }
+
+                bool operator<(const iterator& iter) const {
+                    return index > iter.index;
+                }
+                bool operator>(const iterator& iter) const {
+                    return index < iter.index;
+                }
+                bool operator<=(const iterator& iter) const {
+                    return !(*this > iter);
+                }
+                bool operator>=(const iterator& iter) const {
+                    return !(*this < iter);
+                }
+
+                pointer operator->() const {
+                    const auto pos = index - 1;
+                    return (Component*) &(*direct)[pos * sizeof(Component)];
+                }
+
+                reference operator*() const {
+                    return *operator->();
+                }
+
+            private:
+                direct_type* direct;
+                index_type index;
+        };
+
+        template<typename Component>
+        iterator<Component> begin() { return iterator<Component>(&components_, direct_.size()); }
+
+        template<typename Component>
+        iterator<Component> end() { return iterator<Component>(&components_, 0); }
+
+        bool empty() const { return direct_.empty(); }
+        size_t size() const { return direct_.size(); }
+        size_t capacity() const { return direct_.capacity(); }
+
+        template<typename Component>
+        const Component* data() const { return (Component*) components_.data(); }
+
+        template<typename Component>
+        void assure(const std::size_t page) {
+            if (page >= indirect_.size()) {
+                if (indirect_.size() == 0) {
+                    callDestructor_ = [](void* addr) { ((Component*) addr)->~Component(); };
+                    componentSize_ = sizeof(Component);
+                }
+
+                indirect_.resize(page + 1, nullptr);
+            }
+
+            if (!indirect_[page]) {
+                indirect_[page] = new entity_index_type[ENTITIES_PER_PAGE]{null};
+            }
+        }
+
+        auto poolIndex(const Entity e) const {
+            const auto index = e.index();
+            const auto page = index / ENTITIES_PER_PAGE;
+            const auto offset = index % ENTITIES_PER_PAGE;
+            return std::make_pair(page, offset);
+        }
+
+        template<typename Component, typename... Args>
+        Component* create(const Entity e, Args&&... args) {
+            auto [page, offset] = poolIndex(e);
+            assure<Component>(page);
+            const auto pos = direct_.size();
+            indirect_[page][offset] = entity_index_type(pos);
+            direct_.push_back(e);
+            components_.resize(direct_.size() * sizeof(Component));
+            return new(&components_[pos * sizeof(Component)]) Component(std::forward<Args>(args)...);
+        }
+
+        /**
+         * If the entity has the component, destroy it, then copy the last component into its
+         * spot to keep the array packed tightly.
+         */
+        void destroy(const Entity e) {
+            const auto [dPage, dOffset] = poolIndex(e);
+            if (indirect_[dPage][dOffset] == null)
+                return;
+
+            const auto [toPage, toOffset] = poolIndex(direct_.back());
+
+            const auto idx = indirect_[dPage][dOffset];
+            void* dst = &components_[idx * componentSize_];
+            callDestructor_(dst);
+            void* src = &components_[(direct_.size() - 1) * componentSize_];
+            memcpy(dst, src, componentSize_);
+            components_.resize(components_.size() - componentSize_);
+
+            direct_[indirect_[dPage][dOffset]] = direct_.back();
+            direct_.pop_back();
+
+            indirect_[toPage][toOffset] = indirect_[dPage][dOffset];
+            indirect_[dPage][dOffset] = null;
+        }
+
+        bool has(const Entity e) {
+            const auto [page, offset] = poolIndex(e);
+            return page < indirect_.size() && indirect_[page][offset] != null;
+        }
+
+        template<typename Component>
+        Component* get(const Entity e) {
+            const auto [page, offset] = poolIndex(e);
+            const auto idx = indirect_[page][offset];
+            return (Component*) &components_[idx];
+        }
+
+    // private:
+        std::vector<entity_index_type*> indirect_;
+        std::vector<Entity> direct_;
+        std::vector<uint8_t> components_;
+
+        // When an entity is destroyed, all of its components should be destroyed,
+        // but the types arent known at that point. As a result, need to save the Component size
+        // and a function that properly calls the destructor when the Component type is
+        // known (create method)
+        std::function<void(void*)> callDestructor_;
+        size_t componentSize_ = -1;
+};
+
+static const auto MINIMUM_FREE_INDICIES = 128;
+
+namespace ECS {
+    namespace {
+        std::deque<entity_index_type> freeIndices_; // TODO: use a ring buffer or something w/contiguous mem
+        std::vector<entity_version_type> entityVersions_;
+        std::vector<ComponentPool> components_;
+
+        // could enforce a MAX_COMPONENTS to avoid needing this assure
+        template <typename Component>
+        ComponentPool& assurePool() {
+            const uint32_t cTypeID = Family<Component>::id();
+            if (components_.size() <= cTypeID)
+                components_.resize(cTypeID + 1);
+            return components_[cTypeID];
+         }
+
+    } // namespace anonymous
+
+    // reserve space for 10K entities and initialize all comonent pools
+    // Also create space for 32 different component types
+    void init() {
+        entityVersions_.reserve(1024 * 10);
+        components_.resize(32);
     }
 
-    template <typename T>
-    void destroyComponent(const ComponentHandle<T>& handle) {
-        auto& generation = components_generation_[typeid(T)];
-        auto idx = handle.index();
-        ++generation[idx];
-        components_free_list_[typeid(T)].push_back(idx);
-        // TODO: destructor?
-        // components_[typeid(T)][
+    void shutdown() {
+        freeIndices_.clear();
+        entityVersions_.clear();
+        components_.clear();
     }
 
-    template <typename T>
-    T* getComponent(const ComponentHandle<T>& handle) {
-        return (T*) &components_[typeid(T)][handle.id() * sizeof(T)];
-    }
+    namespace entity {
 
-    template <typename T>
-    bool componentAlive(const ComponentHandle<T>& handle) {
-        const auto& generation = components_generation_[typeid(T)];
-        return generation[handle.index()] == handle.generation();
-    }
+        Entity create() {
+            entity_index_type index     = 0;
+            entity_version_type version = 0;
+            if (freeIndices_.size() > MINIMUM_FREE_INDICIES) {
+                index = freeIndices_.front();
+                freeIndices_.pop_front();
+                version = entityVersions_[index];
+            } else {
+                index = entityVersions_.size();
+                entityVersions_.push_back(0);
+            }
 
-    // TODO: make component list iterator
-    template <typename T>
-    T* getComponents(size_t& size) {
-        size = components_[typeid(T)].size() / sizeof(T);
-        return (T*) &components_[typeid(T)][0];
-    }
+            return Entity(index, version);
+        }
 
-}
+        bool alive(const Entity e) {
+            return entityVersions_[e.index()] == e.version();
+        }
 
-template<typename T>
-ComponentHandle<T>::ComponentHandle(uint32_t id) : id_(id) {}
+        void destroy(const Entity e) {
+            const auto idx = e.index();
+            ++entityVersions_[idx];
+            freeIndices_.push_back(idx);
+            // TODO: should probably use a bitset or something
+            for (auto& pool : components_) {
+                if (pool.has(e))
+                    pool.destroy(e);
+            }
+        }
 
-template<typename T>
-ComponentHandle<T>::ComponentHandle(uint32_t index, uint32_t generation) :
-    id_(index + (generation << COMPONENT_INDEX_BITS))
-{
-}
+    } // namespace entity
 
-template<typename T>
-T* ComponentHandle<T>::operator->() {
-    return ECS::getComponent<T>(*this);
-}
+    namespace component {
 
-Entity* EntityId::operator->() {
-    return ECS::getEntity(*this);
-}
+        template <typename Component, typename... Args>
+        Component* create(const Entity& e, Args&&... args) {
+            auto& pool = assurePool<Component>();
+            return pool.template create<Component, Args...>(e, std::forward<Args>(args)...);
+        }
 
-template <typename T, typename ...Args>
-ComponentHandle<T> Entity::createComponent(Args&& ...args) {
-    auto it = components_.find(typeid(T));
-    if (it == components_.end()) {
-        auto handle = ECS::createComponent<T>(id_, std::forward<Args>(args)...);
-        components_[typeid(T)] = handle.id();
-        return handle;
-    } else {
-        return ComponentHandle<T>();
-    }
-}
+        template <typename Component>
+        bool has(const Entity& e) {
+            auto& pool = assurePool<Component>();
+            return pool.has(e);
+        }
 
-template <typename T>
-ComponentHandle<T> Entity::getComponent() {
-    auto it = components_.find(typeid(T));
-    if (it != components_.end())
-        return ComponentHandle<T>(it->second);
-    else
-        return ComponentHandle<T>();
-}
+        template <typename Component>
+        void destroy(const Entity& e) {
+            auto& pool = assurePool<Component>();
+            pool.destroy(e);
+        }
+
+        template <typename Component>
+        ComponentPool& getPool() {
+            return assurePool<Component>();
+        }
+
+        template <typename Component, typename F>
+        void for_each(F&& func) {
+            auto& pool = assurePool<Component>();
+            auto begin = pool.template begin<Component>();
+            auto end = pool.template end<Component>();
+            for (auto it = begin; it != end; ++it) {
+                func(*it);
+            }
+        }
+
+    } // namespace component
+
+} // namespace ECS

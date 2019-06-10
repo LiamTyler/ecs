@@ -16,19 +16,19 @@
 #endif
 
 class BaseFamily {
-    protected:
-        static uint32_t id_;
+public:
+    static uint32_t typeCounter_;
 };
 
-uint32_t BaseFamily::id_ = 0;
+uint32_t BaseFamily::typeCounter_ = 0;
 
-template <typename T>
+template <typename Derived>
 class Family : public BaseFamily {
-    public:
-        static uint32_t id() {
-            static const auto familyId = id_++;
-            return familyId;
-        }
+public:
+    static uint32_t id() {
+        static uint32_t typeIndex = typeCounter_++;
+        return typeIndex;
+    }
 };
 
 using entity_type         = uint32_t;

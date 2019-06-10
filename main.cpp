@@ -1,5 +1,4 @@
 #include <iostream>
-
 #include "ecs.hpp"
 
 using namespace std;
